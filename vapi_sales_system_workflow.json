@@ -1,0 +1,183 @@
+{
+  "name": "AI Lead Generation & Email Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * *"
+            }
+          ]
+        }
+      },
+      "id": "Schedule Trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.hunter.io/v2/domain-search",
+        "method": "GET",
+        "queryParametersUi": {
+          "parameter": [
+            { "name": "domain", "value": "targetcompany.com" },
+            { "name": "api_key", "value": "YOUR_HUNTER_KEY" },
+            { "name": "limit", "value": "10" }
+          ]
+        }
+      },
+      "id": "Hunter API",
+      "name": "Hunter API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [400, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "return items[0].json.data.emails.map(d => {\n  return {\n    json: {\n      name: d.first_name + ' ' + d.last_name,\n      email: d.value,\n      company: d.domain,\n      title: d.position || '',\n      linkedin: d.linkedin || '',\n      source: 'hunter'\n    }\n  }\n});"
+      },
+      "id": "Normalize Data",
+      "name": "Normalize Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {},
+        "bodyParametersJson": "{\n  \"model\": \"llama-3.1-70b-versatile\",\n  \"temperature\": 0.3,\n  \"response_format\": { \"type\": \"json_object\" },\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are a B2B lead qualification expert. Always respond with valid JSON only.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Score this lead and return JSON with keys: score (0-100), fit (hot/warm/cold), reason, opener.\\n\\nLead:\\nName: {{$json.name}}\\nTitle: {{$json.title}}\\nCompany: {{$json.company}}\\n\\nOur product: SaaS AI Automation Tool\\nIdeal customer: Startups & Agencies\"\n    }\n  ]\n}",
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_GROQ_KEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "id": "Groq AI",
+      "name": "Groq AI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [800, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const ai = JSON.parse(items[0].json.choices[0].message.content);\nreturn [{ json: {\n  ...items[0].json,\n  score: ai.score,\n  fit: ai.fit,\n  reason: ai.reason,\n  opener: ai.opener\n}}];"
+      },
+      "id": "Parse AI",
+      "name": "Parse AI",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json.score}}",
+              "operation": "larger",
+              "value2": 60
+            }
+          ]
+        }
+      },
+      "id": "IF Score",
+      "name": "IF Score",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1200, 300]
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "baseId": "YOUR_BASE_ID",
+        "tableId": "Leads",
+        "fieldsUi": {
+          "fieldValues": [
+            { "fieldId": "Name", "fieldValue": "={{$json.name}}" },
+            { "fieldId": "Email", "fieldValue": "={{$json.email}}" },
+            { "fieldId": "Company", "fieldValue": "={{$json.company}}" },
+            { "fieldId": "Title", "fieldValue": "={{$json.title}}" },
+            { "fieldId": "Score", "fieldValue": "={{$json.score}}" },
+            { "fieldId": "Fit", "fieldValue": "={{$json.fit}}" },
+            { "fieldId": "Reason", "fieldValue": "={{$json.reason}}" }
+          ]
+        }
+      },
+      "id": "Airtable",
+      "name": "Airtable",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [1400, 200]
+    },
+    {
+      "parameters": {
+        "fromEmail": "your@gmail.com",
+        "toEmail": "={{$json.email}}",
+        "subject": "Quick thought on {{$json.company}}",
+        "text": "Hi {{$json.name}},\n\n{{$json.opener}}\n\nWe help companies automate workflows using AI.\n\nWorth a quick 15-min call?\n\n- Shubham"
+      },
+      "id": "Send Email",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1400, 400]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "sheetId": "YOUR_SHEET_ID",
+        "range": "Sheet1!A1",
+        "options": {},
+        "valueInputMode": "USER_ENTERED"
+      },
+      "id": "Google Sheets",
+      "name": "Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 2,
+      "position": [1600, 300]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [[{ "node": "Hunter API", "type": "main", "index": 0 }]]
+    },
+    "Hunter API": {
+      "main": [[{ "node": "Normalize Data", "type": "main", "index": 0 }]]
+    },
+    "Normalize Data": {
+      "main": [[{ "node": "Groq AI", "type": "main", "index": 0 }]]
+    },
+    "Groq AI": {
+      "main": [[{ "node": "Parse AI", "type": "main", "index": 0 }]]
+    },
+    "Parse AI": {
+      "main": [[{ "node": "IF Score", "type": "main", "index": 0 }]]
+    },
+    "IF Score": {
+      "main": [
+        [{ "node": "Airtable", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Airtable": {
+      "main": [[{ "node": "Send Email", "type": "main", "index": 0 }]]
+    },
+    "Send Email": {
+      "main": [[{ "node": "Google Sheets", "type": "main", "index": 0 }]]
+    }
+  }
+}
